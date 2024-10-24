@@ -1,0 +1,82 @@
+import requests
+import xml.etree.ElementTree as ET
+import pandas as pd
+
+# Your Azure Maps API key
+api_key = 'Dsdcbasdcsadc'
+
+
+datasetId = "d_e7289d9a50e45bf1174590e184e6631c"
+# url for the api request
+url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + datasetId + "/poll-download"
+
+
+response = requests.get(url)
+# Parsing JSON response
+json_data = response.json()
+
+
+if json_data['code'] != 0:
+    print(json_data['errMsg'])
+    exit(1)
+
+# Extract the download URL from the JSON response
+url = json_data['data']['url']
+# Send a GET request to the download URL
+response = requests.get(url)
+
+# Ensure the response is not empty
+if not response.text:
+    print("The response text is empty.")
+    exit(1)
+
+# Parse the XML response with namespace handling
+try:
+    root = ET.fromstring(response.text)
+    print("XML parsed successfully.")
+except ET.ParseError as e:
+    print("Error parsing XML:", e)
+    exit(1)
+
+# Define the namespace
+namespaces = {'kml': 'http://www.opengis.net/kml/2.2'}
+
+# Function to get address from coordinates using Azure Maps API
+def get_address_from_coordinates(latitude, longitude, api_key):
+    url = f"https://atlas.microsoft.com/search/address/reverse/json?api-version=1.0&query={latitude},{longitude}&subscription-key={api_key}"
+    response = requests.get(url)
+    data = response.json()
+    
+    if data['summary']['numResults'] > 0:
+        return data['addresses'][0]['address']['freeformAddress']
+    else:
+        return "No address found"
+    
+
+# Extract values of <SimpleData name='NAME'> and <coordinates>
+data = []
+for placemark in root.findall(".//kml:Placemark", namespaces):
+    name_element = placemark.find(".//kml:SimpleData[@name='NAME']", namespaces)
+    coordinates_element = placemark.find(".//kml:coordinates", namespaces)
+    
+    if name_element is not None and coordinates_element is not None:
+        coordinates = coordinates_element.text.split(',')
+        longitude, latitude = coordinates[0], coordinates[1]
+        address = get_address_from_coordinates(latitude, longitude, api_key)
+        data.append({
+            'Name': name_element.text,
+            'Longitude': longitude,
+            'Latitude': latitude,
+            'Address': address
+        })
+
+# Create a DataFrame from the extracted data
+df = pd.DataFrame(data)
+
+# Add the DataFrame as new columns to the existing dataset
+dataset['Name'] = df['Name']
+dataset['Longitude'] = df['Longitude']
+dataset['Latitude'] = df['Latitude']
+dataset['Address'] = df['Address']
+
+print(dataset.head())
